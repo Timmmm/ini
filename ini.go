@@ -979,7 +979,7 @@ func (f *File) parse(reader io.Reader) error {
 				comments += LineBreak + line
 			}
 			continue
-		case line[0] == '[': // New sction.
+		case line[0] == '[': // New section.
 			// Read to the next ']' (TODO: support quoted strings)
 			i := strings.Index(line, "]")
 			if i == -1 {
