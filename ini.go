@@ -901,7 +901,7 @@ func parseSection(line string) (name, lineComment string) {
 	// Next find the right colon.
 	co := unquotedIndex(line, "]")
 	if co == -1 {
-		name = line
+		name = line[1:]
 		return
 	}
 
