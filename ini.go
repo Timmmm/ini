@@ -872,12 +872,26 @@ func (f *File) DeleteSection(name string) {
 	}
 }
 
-func cutComment(str string) string {
-	i := strings.IndexAny(str, "#;")
-	if i == -1 {
-		return str
+// trimComment removes any comments, considering quotes.
+func trimComment(str string) string {
+	inQuote := false
+	inEscape := false
+
+	for i, c := range str {
+		switch c {
+		case `\`:
+			inEscape = !inEscape
+		case '"':
+			if !inEscape {
+				inQuote = !inQuote
+			}
+		case '#', ';':
+			if !inQuote && !inEscape {
+				return str[:i]
+			}
+		}
 	}
-	return str[:i]
+	return str
 }
 
 func checkMultipleLines(buf *bufio.Reader, line, val, valQuote string) (string, error) {
