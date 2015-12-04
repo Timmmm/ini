@@ -525,11 +525,6 @@ func (s *Section) HasKey(name string) bool {
 	return key != nil
 }
 
-// Haskey is a backwards-compatible name for HasKey.
-func (s *Section) Haskey(name string) bool {
-	return s.HasKey(name)
-}
-
 // HasValue returns true if section contains given raw value.
 func (s *Section) HasValue(value string) bool {
 	if s.f.BlockMode {
@@ -1107,6 +1102,10 @@ func (f *File) WriteTo(w io.Writer) (n int64, err error) {
 		}
 	}
 
+	// Put a line between sections.
+	if _, err = buf.WriteString(prepareComment(f.footComments)); err != nil {
+		return 0, err
+	}
 	return buf.WriteTo(w)
 }
 
