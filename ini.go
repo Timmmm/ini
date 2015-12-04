@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,11 +29,11 @@ import (
 )
 
 const (
+	// The default section is where key/value pairs that appear before any section
+	// headers go. It is always the first section.
 	DEFAULT_SECTION = "DEFAULT"
-	// Maximum allowed depth when recursively substituing variable names.
-	_DEPTH_VALUES = 99
 
-	_VERSION = "1.7.0"
+	_VERSION = "0.0.1"
 )
 
 func Version() string {
@@ -42,23 +41,10 @@ func Version() string {
 }
 
 var (
+	// This setting only comes into effect when we write files.
+	// Reading files supports \n and \r\n.
 	LineBreak = "\n"
 )
-
-func init() {
-	if runtime.GOOS == "windows" {
-		LineBreak = "\r\n"
-	}
-}
-
-func inSlice(str string, s []string) bool {
-	for _, v := range s {
-		if str == v {
-			return true
-		}
-	}
-	return false
-}
 
 // dataSource is a interface that returns file content.
 type dataSource interface {
@@ -466,11 +452,10 @@ type Section struct {
 	name        string
 	keys        map[string]*Key
 	keyList     []string
-	keysHash    map[string]string
 }
 
 func newSection(f *File, name string) *Section {
-	return &Section{f, "", "", name, make(map[string]*Key), make([]string, 0, 10), make(map[string]string)}
+	return &Section{f, "", "", name, make(map[string]*Key), make([]string, 0, 10)}
 }
 
 // Name returns name of Section.
@@ -489,16 +474,18 @@ func (s *Section) NewKey(name, val string) (*Key, error) {
 		defer s.f.lock.Unlock()
 	}
 
-	if inSlice(name, s.keyList) {
-		s.keys[name].value = val
-		return s.keys[name], nil
+	key, ok := s.keys[name]
+
+	if !ok {
+		// No existing key; create a new one.
+		key = &Key{s, "", "", name, "", true}
+
+		s.keys[name] = key
+		s.keyList = append(s.keyList, name)
 	}
 
-	s.keyList = append(s.keyList, name)
-	// TODO Modified should be true, and then we set it to false in the parse() function.
-	s.keys[name] = &Key{s, "", "", name, val, false}
-	s.keysHash[name] = val
-	return s.keys[name], nil
+	key.value = val
+	return key, nil
 }
 
 // GetKey returns key in section by given name.
@@ -594,8 +581,8 @@ func (s *Section) KeysHash() map[string]string {
 	}
 
 	hash := map[string]string{}
-	for key, value := range s.keysHash {
-		hash[key] = value
+	for _, key := range s.keys {
+		hash[key.name] = key.value
 	}
 	return hash
 }
@@ -1047,16 +1034,20 @@ func (f *File) Append(source interface{}, others ...interface{}) error {
 // and adds ; if it doesn't. This version is for comments before a section
 // or key. It ensures every line ends with a LineBreak, unless comment was empty.
 func prepareComment(comment string) string {
+	hasText := false
 	lines := strings.Split(comment, "\n")
-	if len(lines) == 0 {
-		return ""
-	}
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
+		if len(line) != 0 {
+			hasText = true
+		}
 		if !strings.HasPrefix(line, ";") && !strings.HasPrefix(line, "#") {
 			line = "; " + line
 		}
 		lines[i] = line
+	}
+	if !hasText {
+		return ""
 	}
 	return strings.Join(lines, LineBreak) + LineBreak
 }
