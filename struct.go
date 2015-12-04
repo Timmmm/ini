@@ -131,29 +131,30 @@ func setWithProperType(t reflect.Type, key *Key, field reflect.Value, delim stri
 		}
 		field.Set(reflect.ValueOf(timeVal))
 	case reflect.Slice:
-		vals := key.Strings(delim)
-		numVals := len(vals)
-		if numVals == 0 {
-			return nil
-		}
+		return nil
+		//		vals := key.Strings(delim)
+		//		numVals := len(vals)
+		//		if numVals == 0 {
+		//			return nil
+		//		}
 
-		sliceOf := field.Type().Elem().Kind()
+		//		sliceOf := field.Type().Elem().Kind()
 
-		var times []time.Time
-		if sliceOf == reflectTime {
-			times = key.Times(delim)
-		}
+		//		var times []time.Time
+		//		if sliceOf == reflectTime {
+		//			times = key.Times(delim)
+		//		}
 
-		slice := reflect.MakeSlice(field.Type(), numVals, numVals)
-		for i := 0; i < numVals; i++ {
-			switch sliceOf {
-			case reflectTime:
-				slice.Index(i).Set(reflect.ValueOf(times[i]))
-			default:
-				slice.Index(i).Set(reflect.ValueOf(vals[i]))
-			}
-		}
-		field.Set(slice)
+		//		slice := reflect.MakeSlice(field.Type(), numVals, numVals)
+		//		for i := 0; i < numVals; i++ {
+		//			switch sliceOf {
+		//			case reflectTime:
+		//				slice.Index(i).Set(reflect.ValueOf(times[i]))
+		//			default:
+		//				slice.Index(i).Set(reflect.ValueOf(vals[i]))
+		//			}
+		//		}
+		//		field.Set(slice)
 	default:
 		return fmt.Errorf("unsupported type '%s'", t)
 	}

@@ -56,7 +56,6 @@ UNUSED_KEY = should be deleted
 
 [features]
 -: Support read/write comments of keys and sections
--: Support auto-increment of key names
 -: Support load multiple files to overwrite key values
 
 [types]
@@ -68,6 +67,7 @@ INT = 10
 TIME = 2015-01-01T20:17:05Z
 DURATION = 2h45m
 UINT = 3
+QUOTED_STRING = "test" ; With a comment
 
 [array]
 STRINGS = en, zh, de
@@ -75,6 +75,7 @@ FLOAT64S = 1.1, 2.2, 3.3
 INTS = 1, 2, 3
 UINTS = 1, 2, 3
 TIMES = 2015-01-01T20:17:05Z,2015-01-01T20:17:05Z,2015-01-01T20:17:05Z
+QUOTED_STRINGS = "en", "zh", "de" ; Comment
 
 [note]
 empty_lines = next line is empty\
@@ -268,6 +269,7 @@ func Test_Values(t *testing.T) {
 				So(sec.Key("UINT").MustUint(), ShouldEqual, 3)
 				So(sec.Key("UINT").MustUint64(), ShouldEqual, 3)
 				So(sec.Key("TIME").MustTime().String(), ShouldEqual, t.String())
+				So(sec.Key("QUOTED_STRING").MustString("404"), ShouldEqual, `"test"`)
 
 				dur, err := time.ParseDuration("2h45m")
 				So(err, ShouldBeNil)
@@ -344,6 +346,7 @@ func Test_Values(t *testing.T) {
 		Convey("Get values into slice", func() {
 			sec := cfg.Section("array")
 			So(strings.Join(sec.Key("STRINGS").Strings(","), ","), ShouldEqual, "en,zh,de")
+			So(strings.Join(sec.Key("QUOTED_STRINGS").Strings(","), ","), ShouldEqual, `"en","zh","de"`)
 			So(len(sec.Key("STRINGS_404").Strings(",")), ShouldEqual, 0)
 
 			vals1 := sec.Key("FLOAT64S").Float64s(",")

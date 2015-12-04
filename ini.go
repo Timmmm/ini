@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -44,12 +43,6 @@ func Version() string {
 
 var (
 	LineBreak = "\n"
-
-	// Variable regexp pattern: %(variable)s
-	varPattern = regexp.MustCompile(`%\(([^\)]+)\)s`)
-
-	// Write spaces around "=" to look better.
-	PrettyFormat = true
 )
 
 func init() {
@@ -109,11 +102,21 @@ func (s *sourceData) ReadCloser() (io.ReadCloser, error) {
 
 // Key represents a key under a section.
 type Key struct {
-	s          *Section
-	Comment    string
-	name       string
-	value      string
-	isAutoIncr bool
+	// The section this key is in.
+	s *Section
+	// Comments on lines before this key. This includes the comment character (; or #).
+	Comment string
+	// Commants on the same line as this key. This includes the comment character (; or #).
+	LineComment string
+	// The key name, including quotes if present.
+	name string
+	// The original value of the key. It doesn't include comments on
+	// the same line but it does include quotes (if present). The quotation
+	// marks are removed when you call Key.String().
+	value string
+
+	// Whether or not this key has been modified from its datasource value.
+	modified bool
 }
 
 // Name returns name of key.
@@ -128,31 +131,17 @@ func (k *Key) Value() string {
 
 // String returns string representation of value.
 func (k *Key) String() string {
-	val := k.value
-	if strings.Index(val, "%") == -1 {
-		return val
+
+	// TODO This supports different quoting than I've used to parse
+	// the lines. For example this will fail:
+	//
+	//   foo = `bar` ; comment
+	//
+	val, err := strconv.Unquote(k.value)
+	if err != nil {
+		return k.value
 	}
 
-	for i := 0; i < _DEPTH_VALUES; i++ {
-		vr := varPattern.FindString(val)
-		if len(vr) == 0 {
-			break
-		}
-
-		// Take off leading '%(' and trailing ')s'.
-		noption := strings.TrimLeft(vr, "%(")
-		noption = strings.TrimRight(noption, ")s")
-
-		// Search in the same section.
-		nk, err := k.s.GetKey(noption)
-		if err != nil {
-			// Search again in default section.
-			nk, _ = k.s.f.Section("").GetKey(noption)
-		}
-
-		// Substitute by new value and take off leading '%(' and trailing ')s'.
-		val = strings.Replace(val, vr, nk.value, -1)
-	}
 	return val
 }
 
@@ -179,43 +168,43 @@ func parseBool(str string) (value bool, err error) {
 
 // Bool returns bool type value.
 func (k *Key) Bool() (bool, error) {
-	return parseBool(k.String())
+	return parseBool(k.Value())
 }
 
 // Float64 returns float64 type value.
 func (k *Key) Float64() (float64, error) {
-	return strconv.ParseFloat(k.String(), 64)
+	return strconv.ParseFloat(k.Value(), 64)
 }
 
 // Int returns int type value.
 func (k *Key) Int() (int, error) {
-	return strconv.Atoi(k.String())
+	return strconv.Atoi(k.Value())
 }
 
 // Int64 returns int64 type value.
 func (k *Key) Int64() (int64, error) {
-	return strconv.ParseInt(k.String(), 10, 64)
+	return strconv.ParseInt(k.Value(), 10, 64)
 }
 
 // Uint returns uint type valued.
 func (k *Key) Uint() (uint, error) {
-	u, e := strconv.ParseUint(k.String(), 10, 64)
+	u, e := strconv.ParseUint(k.Value(), 10, 64)
 	return uint(u), e
 }
 
 // Uint64 returns uint64 type value.
 func (k *Key) Uint64() (uint64, error) {
-	return strconv.ParseUint(k.String(), 10, 64)
+	return strconv.ParseUint(k.Value(), 10, 64)
 }
 
 // Duration returns time.Duration type value.
 func (k *Key) Duration() (time.Duration, error) {
-	return time.ParseDuration(k.String())
+	return time.ParseDuration(k.Value())
 }
 
 // TimeFormat parses with given format and returns time.Time type value.
 func (k *Key) TimeFormat(format string) (time.Time, error) {
-	return time.Parse(format, k.String())
+	return time.Parse(format, k.Value())
 }
 
 // Time parses with RFC3339 format and returns time.Time type value.
@@ -454,89 +443,10 @@ func (k *Key) RangeTime(defaultVal, min, max time.Time) time.Time {
 	return k.RangeTimeFormat(time.RFC3339, defaultVal, min, max)
 }
 
-// Strings returns list of string devide by given delimiter.
-func (k *Key) Strings(delim string) []string {
-	str := k.String()
-	if len(str) == 0 {
-		return []string{}
-	}
-
-	vals := strings.Split(str, delim)
-	for i := range vals {
-		vals[i] = strings.TrimSpace(vals[i])
-	}
-	return vals
-}
-
-// Float64s returns list of float64 devide by given delimiter.
-func (k *Key) Float64s(delim string) []float64 {
-	strs := k.Strings(delim)
-	vals := make([]float64, len(strs))
-	for i := range strs {
-		vals[i], _ = strconv.ParseFloat(strs[i], 64)
-	}
-	return vals
-}
-
-// Ints returns list of int devide by given delimiter.
-func (k *Key) Ints(delim string) []int {
-	strs := k.Strings(delim)
-	vals := make([]int, len(strs))
-	for i := range strs {
-		vals[i], _ = strconv.Atoi(strs[i])
-	}
-	return vals
-}
-
-// Int64s returns list of int64 devide by given delimiter.
-func (k *Key) Int64s(delim string) []int64 {
-	strs := k.Strings(delim)
-	vals := make([]int64, len(strs))
-	for i := range strs {
-		vals[i], _ = strconv.ParseInt(strs[i], 10, 64)
-	}
-	return vals
-}
-
-// Uints returns list of uint devide by given delimiter.
-func (k *Key) Uints(delim string) []uint {
-	strs := k.Strings(delim)
-	vals := make([]uint, len(strs))
-	for i := range strs {
-		u, _ := strconv.ParseUint(strs[i], 10, 64)
-		vals[i] = uint(u)
-	}
-	return vals
-}
-
-// Uint64s returns list of uint64 devide by given delimiter.
-func (k *Key) Uint64s(delim string) []uint64 {
-	strs := k.Strings(delim)
-	vals := make([]uint64, len(strs))
-	for i := range strs {
-		vals[i], _ = strconv.ParseUint(strs[i], 10, 64)
-	}
-	return vals
-}
-
-// TimesFormat parses with given format and returns list of time.Time devide by given delimiter.
-func (k *Key) TimesFormat(format, delim string) []time.Time {
-	strs := k.Strings(delim)
-	vals := make([]time.Time, len(strs))
-	for i := range strs {
-		vals[i], _ = time.Parse(format, strs[i])
-	}
-	return vals
-}
-
-// Times parses with RFC3339 format and returns list of time.Time devide by given delimiter.
-func (k *Key) Times(delim string) []time.Time {
-	return k.TimesFormat(time.RFC3339, delim)
-}
-
 // SetValue changes key value.
 func (k *Key) SetValue(v string) {
 	k.value = v
+	k.modified = true
 }
 
 //   _________              __  .__
@@ -548,16 +458,19 @@ func (k *Key) SetValue(v string) {
 
 // Section represents a config section.
 type Section struct {
-	f        *File
-	Comment  string
-	name     string
-	keys     map[string]*Key
-	keyList  []string
-	keysHash map[string]string
+	f *File
+	// Comments on lines before this section
+	Comment string
+	// Comments on lines at the end of this section
+	LineComment string
+	name        string
+	keys        map[string]*Key
+	keyList     []string
+	keysHash    map[string]string
 }
 
 func newSection(f *File, name string) *Section {
-	return &Section{f, "", name, make(map[string]*Key), make([]string, 0, 10), make(map[string]string)}
+	return &Section{f, "", "", name, make(map[string]*Key), make([]string, 0, 10), make(map[string]string)}
 }
 
 // Name returns name of Section.
@@ -582,7 +495,8 @@ func (s *Section) NewKey(name, val string) (*Key, error) {
 	}
 
 	s.keyList = append(s.keyList, name)
-	s.keys[name] = &Key{s, "", name, val, false}
+	// TODO Modified should be true, and then we set it to false in the parse() function.
+	s.keys[name] = &Key{s, "", "", name, val, false}
 	s.keysHash[name] = val
 	return s.keys[name], nil
 }
@@ -711,18 +625,23 @@ func (s *Section) DeleteKey(name string) {
 
 // File represents a combination of a or more INI file(s) in memory.
 type File struct {
-	// Should make things safe, but sometimes doesn't matter.
+	// Setting BlockMode to true makes it thread-safe by wrapping
+	// some functions with a file-level mutex (lock).
 	BlockMode bool
-	// Make sure data is safe in multiple goroutines.
+	// Mutex used to control access to this file.
 	lock sync.RWMutex
 
 	// Allow combination of multiple data sources.
 	dataSources []dataSource
-	// Actual data is stored here.
+	// Actual data is stored here. This is a list of sections.
 	sections map[string]*Section
 
-	// To keep data in order.
+	// To keep data in order we store the list of sections.
+	// Each section stores a list of keys.
 	sectionList []string
+
+	// Any comments at the bottom of the file.
+	footComments string
 
 	NameMapper
 }
@@ -750,6 +669,10 @@ func parseDataSource(source interface{}) (dataSource, error) {
 
 // Load loads and parses from INI data sources.
 // Arguments can be mixed of file name with string type, or raw data in []byte.
+// String types are interpreted as filenames. []byte's are interpretted as file contents.
+//
+// If multiple sources are used they are merged into one file with later values overwriting
+// former ones.
 func Load(source interface{}, others ...interface{}) (_ *File, err error) {
 	sources := make([]dataSource, len(others)+1)
 	sources[0], err = parseDataSource(source)
@@ -787,13 +710,17 @@ func (f *File) NewSection(name string) (*Section, error) {
 		defer f.lock.Unlock()
 	}
 
-	if inSlice(name, f.sectionList) {
-		return f.sections[name], nil
+	section, ok := f.sections[name]
+
+	if !ok {
+		// No existing section; create a new one.
+		section = newSection(f, name)
+
+		f.sections[name] = section
+		f.sectionList = append(f.sectionList, name)
 	}
 
-	f.sectionList = append(f.sectionList, name)
-	f.sections[name] = newSection(f, name)
-	return f.sections[name], nil
+	return section, nil
 }
 
 // NewSections creates a list of sections.
@@ -872,75 +799,114 @@ func (f *File) DeleteSection(name string) {
 	}
 }
 
-// trimComment removes any comments, considering quotes.
-func trimComment(str string) string {
+// unquotedIndex finds the first character in str that is not quoted
+// and is in the set `chars`. To be quoted means to be in a "string"
+// or to be preceeded by \. For example, it would find the first X in this text:
+//
+//    "X"  "\"X"  \X  X
+//
+// Returns -1 for none.
+func unquotedIndex(str, chars string) int {
 	inQuote := false
 	inEscape := false
 
 	for i, c := range str {
 		switch c {
-		case `\`:
+		case '\\':
 			inEscape = !inEscape
 		case '"':
 			if !inEscape {
 				inQuote = !inQuote
 			}
-		case '#', ';':
-			if !inQuote && !inEscape {
-				return str[:i]
+		default:
+			if !inQuote && !inEscape && strings.ContainsRune(chars, c) {
+				return i
 			}
 		}
 	}
-	return str
+	return -1
 }
 
-func checkMultipleLines(buf *bufio.Reader, line, val, valQuote string) (string, error) {
-	isEnd := false
-	for {
-		next, err := buf.ReadString('\n')
-		if err != nil {
-			if err != io.EOF {
-				return "", err
+// lastUnquotedIndex finds the last character in str that is not quoted
+// and is in the set `chars`. To be quoted means to be in a "string"
+// or to be preceeded by \. For example, it would find the final X in this text:
+//
+//    "X"  "\"X"  \X  X
+//
+// Returns -1 for none.
+func lastUnquotedIndex(str, chars string) int {
+	inQuote := false
+	inEscape := false
+
+	// We still have to read from the start to get the quoting right.
+	idx := -1
+	for i, c := range str {
+		switch c {
+		case '\\':
+			inEscape = !inEscape
+		case '"':
+			if !inEscape {
+				inQuote = !inQuote
 			}
-			isEnd = true
-		}
-		pos := strings.LastIndex(next, valQuote)
-		if pos > -1 {
-			val += next[:pos]
-			break
-		}
-		val += next
-		if isEnd {
-			return "", fmt.Errorf("error parsing line: missing closing key quote from '%s' to '%s'", line, next)
+		default:
+			if !inQuote && !inEscape && strings.ContainsRune(chars, c) {
+				idx = i
+			}
 		}
 	}
-	return val, nil
+	return idx
 }
 
-func checkContinuationLines(buf *bufio.Reader, val string) (string, bool, error) {
-	isEnd := false
-	for {
-		valLen := len(val)
-		if valLen == 0 || val[valLen-1] != '\\' {
-			break
-		}
-		val = val[:valLen-1]
+// parseKeyValue parses a key/value line into its components.
+// It supports quoted strings
+func parseKeyValue(line string) (key, sep, value, lineComment string) {
+	line = strings.TrimSpace(line)
 
-		next, err := buf.ReadString('\n')
-		if err != nil {
-			if err != io.EOF {
-				return "", isEnd, err
-			}
-			isEnd = true
-		}
-
-		next = strings.TrimSpace(next)
-		if len(next) == 0 {
-			break
-		}
-		val += next
+	// First extract any comments.
+	c := unquotedIndex(line, "#;")
+	if c != -1 {
+		lineComment = line[c:]
+		line = strings.TrimSpace(line[:c])
 	}
-	return val, isEnd, nil
+
+	// Next find the equals or colon if there is one
+	eq := unquotedIndex(line, "=:")
+	if eq == -1 {
+		key = line
+		return
+	}
+
+	sep = string(line[eq])
+
+	key = strings.TrimSpace(line[:eq])
+
+	// Finally, the rest of the string must be the value.
+	if len(line) > eq+1 {
+		value = strings.TrimSpace(line[eq+1:])
+	}
+	return
+}
+
+// parseSection parses a section line, returning the comment too if there was one.
+func parseSection(line string) (name, lineComment string) {
+	line = strings.TrimSpace(line)
+
+	// First extract any comments.
+	c := unquotedIndex(line, "#;")
+	if c != -1 {
+		lineComment = line[c:]
+		line = strings.TrimSpace(line[:c])
+	}
+
+	// Next find the right colon.
+	co := unquotedIndex(line, "]")
+	if co == -1 {
+		name = line
+		return
+	}
+
+	name = strings.TrimSpace(line[:co])
+	return
 }
 
 // parse parses data through an io.Reader.
@@ -954,21 +920,29 @@ func (f *File) parse(reader io.Reader) error {
 		buf.Read(mask)
 	}
 
-	count := 1
-	comments := ""
+	// The accumulated comments before the next function/section.
+	// We set it to footComments because its possible this file already
+	// has some data loaded, and the first item in the new file should have
+	// the last comments in the previous one.
+	comments := f.footComments
 	isEnd := false
 
+	// Create a section for keys that are before any [section] headers.
 	section, err := f.NewSection(DEFAULT_SECTION)
 	if err != nil {
 		return err
 	}
 
 	for {
+		// Read until a newline. Multi-line strings are not supported in this
+		// fork of the library.
 		line, err := buf.ReadString('\n')
+		// Trim spaces, including the \r used with windows line endings.
 		line = strings.TrimSpace(line)
 		length := len(line)
 
-		// Check error and ignore io.EOF just for a moment.
+		// If it is the last line of the file and not terminated with \n
+		// we get an io.EOF error which we should ignore.
 		if err != nil {
 			if err != io.EOF {
 				return fmt.Errorf("error reading next line: %v", err)
@@ -977,6 +951,8 @@ func (f *File) parse(reader io.Reader) error {
 			if length == 0 {
 				break
 			}
+			// We're at the end of the file, so don't loop again.
+			// (But we still process this line).
 			isEnd = true
 		}
 
@@ -986,144 +962,38 @@ func (f *File) parse(reader io.Reader) error {
 		}
 
 		switch {
-		case line[0] == '#' || line[0] == ';': // Comments.
+		case line[0] == '#' || line[0] == ';':
+			// Entire line is a comment.
 			if len(comments) == 0 {
 				comments = line
 			} else {
 				comments += LineBreak + line
 			}
-			continue
-		case line[0] == '[': // New section.
-			// Read to the next ']' (TODO: support quoted strings)
-			i := strings.Index(line, "]")
-			if i == -1 {
-				return fmt.Errorf("error parsing line: unclosed section: %s", line)
-			}
-			section, err = f.NewSection(strings.TrimSpace(line[1:i]))
+		case line[0] == '[':
+			// New section.
+			name, lineComment := parseSection(line)
+
+			// Create a new section, or return the existing section if there is one.
+			section, err = f.NewSection(name)
 			if err != nil {
 				return err
 			}
 
-			lineComments := strings.TrimSpace(line[i+1:])
-			if len(lineComments) > 0 {
-				if len(comments) == 0 {
-					comments = lineComments
-				} else {
-					comments += LineBreak + lineComments
-				}
-			}
+			section.LineComment = lineComment
+			section.Comment = comments
+			comments = ""
 
-			if len(comments) > 0 {
-				section.Comment = comments
-				comments = ""
-			}
-			// Reset counter.
-			count = 1
-			continue
-		}
+		default:
+			// Key = Value
+			key, _, value, lineComment := parseKeyValue(line)
 
-		// Other possibilities.
-		var (
-			i        int
-			keyQuote string
-			kname    string
-			valQuote string
-			val      string
-		)
-
-		// Key name surrounded by quotes.
-		if line[0] == '"' {
-			if length > 6 && line[0:3] == `"""` {
-				keyQuote = `"""`
-			} else {
-				keyQuote = `"`
-			}
-		} else if line[0] == '`' {
-			keyQuote = "`"
-		}
-		if len(keyQuote) > 0 {
-			qLen := len(keyQuote)
-			pos := strings.Index(line[qLen:], keyQuote)
-			if pos == -1 {
-				return fmt.Errorf("error parsing line: missing closing key quote: %s", line)
-			}
-			pos = pos + qLen
-			i = strings.IndexAny(line[pos:], "=:")
-			if i < 0 {
-				return fmt.Errorf("error parsing line: key-value delimiter not found: %s", line)
-			} else if i == pos {
-				return fmt.Errorf("error parsing line: key is empty: %s", line)
-			}
-			i = i + pos
-			kname = line[qLen:pos] // Just keep spaces inside quotes.
-		} else {
-			i = strings.IndexAny(line, "=:")
-			if i < 0 {
-				return fmt.Errorf("error parsing line: key-value delimiter not found: %s", line)
-			} else if i == 0 {
-				return fmt.Errorf("error parsing line: key is empty: %s", line)
-			}
-			kname = strings.TrimSpace(line[0:i])
-		}
-
-		isAutoIncr := false
-		// Auto increment.
-		if kname == "-" {
-			isAutoIncr = true
-			kname = "#" + fmt.Sprint(count)
-			count++
-		}
-
-		lineRight := strings.TrimSpace(line[i+1:])
-		lineRightLength := len(lineRight)
-		firstChar := ""
-		if lineRightLength >= 2 {
-			firstChar = lineRight[0:1]
-		}
-		if firstChar == "`" {
-			valQuote = "`"
-		} else if firstChar == `"` {
-			if lineRightLength >= 3 && lineRight[0:3] == `"""` {
-				valQuote = `"""`
-			} else {
-				valQuote = `"`
-			}
-		} else if firstChar == `'` {
-			valQuote = `'`
-		}
-
-		if len(valQuote) > 0 {
-			qLen := len(valQuote)
-			pos := strings.LastIndex(lineRight[qLen:], valQuote)
-			// For multiple-line value check.
-			if pos == -1 {
-				if valQuote == `"` || valQuote == `'` {
-					return fmt.Errorf("error parsing line: single quote does not allow multiple-line value: %s", line)
-				}
-
-				val = lineRight[qLen:] + "\n"
-				val, err = checkMultipleLines(buf, line, val, valQuote)
-				if err != nil {
-					return err
-				}
-			} else {
-				val = lineRight[qLen : pos+qLen]
-			}
-		} else {
-			val = strings.TrimSpace(cutComment(lineRight))
-			val, isEnd, err = checkContinuationLines(buf, val)
+			k, err := section.NewKey(key, value)
 			if err != nil {
 				return err
 			}
-		}
 
-		k, err := section.NewKey(kname, val)
-		if err != nil {
-			return err
-		}
-		k.isAutoIncr = isAutoIncr
-		if len(comments) > 0 {
 			k.Comment = comments
+			k.LineComment = lineComment
 			comments = ""
 		}
 
@@ -1131,6 +1001,8 @@ func (f *File) parse(reader io.Reader) error {
 			break
 		}
 	}
+	f.footComments = comments
+
 	return nil
 }
 
@@ -1173,43 +1045,35 @@ func (f *File) Append(source interface{}, others ...interface{}) error {
 
 // WriteToIndent writes file content into io.Writer with given value indention.
 func (f *File) WriteToIndent(w io.Writer, indent string) (n int64, err error) {
-	equalSign := "="
-	if PrettyFormat {
-		equalSign = " = "
-	}
 
 	// Use buffer to make sure target is safe until finish encoding.
 	buf := bytes.NewBuffer(nil)
+
+	// Go through the section list in order.
 	for i, sname := range f.sectionList {
 		sec := f.Section(sname)
+
+		// Write comment for this section before its header.
 		if len(sec.Comment) > 0 {
-			if sec.Comment[0] != '#' && sec.Comment[0] != ';' {
-				sec.Comment = "; " + sec.Comment
-			}
 			if _, err = buf.WriteString(sec.Comment + LineBreak); err != nil {
 				return 0, err
 			}
 		}
 
-		if i > 0 {
-			if _, err = buf.WriteString("[" + sname + "]" + LineBreak); err != nil {
+		// The first section is the default one.
+		if i != 0 {
+			// TODO: Omit space if linecomment is blank.
+			if _, err = buf.WriteString("[" + sname + "] " + sec.LineComment + LineBreak); err != nil {
 				return 0, err
-			}
-		} else {
-			// Write nothing if default section is empty.
-			if len(sec.keyList) == 0 {
-				continue
 			}
 		}
 
+		// Go through the keys in this section.
 		for _, kname := range sec.keyList {
 			key := sec.Key(kname)
 			if len(key.Comment) > 0 {
 				if len(indent) > 0 && sname != DEFAULT_SECTION {
 					buf.WriteString(indent)
-				}
-				if key.Comment[0] != '#' && key.Comment[0] != ';' {
-					key.Comment = "; " + key.Comment
 				}
 				if _, err = buf.WriteString(key.Comment + LineBreak); err != nil {
 					return 0, err
@@ -1220,21 +1084,10 @@ func (f *File) WriteToIndent(w io.Writer, indent string) (n int64, err error) {
 				buf.WriteString(indent)
 			}
 
-			switch {
-			case key.isAutoIncr:
-				kname = "-"
-			case strings.Contains(kname, "`") || strings.Contains(kname, `"`):
-				kname = `"""` + kname + `"""`
-			case strings.Contains(kname, `=`) || strings.Contains(kname, `:`):
-				kname = "`" + kname + "`"
-			}
+			// TODO Quote keys properly (but only if they have been modified)
 
-			val := key.value
-			// In case key value contains "\n", "`", "\"", "#" or ";".
-			if strings.ContainsAny(val, "\n`\"#;") {
-				val = `"""` + val + `"""`
-			}
-			if _, err = buf.WriteString(kname + equalSign + val + LineBreak); err != nil {
+			// TODO: Omit space if linecomment is blank.
+			if _, err = buf.WriteString(kname + " = " + key.value + " " + key.LineComment + LineBreak); err != nil {
 				return 0, err
 			}
 		}

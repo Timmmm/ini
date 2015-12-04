@@ -10,15 +10,22 @@ Package ini provides INI file read and write functionality in Go.
 ## Feature
 
 - Load multiple data sources(`[]byte` or file) with overwrites.
-- Read with recursion values.
-- Read with parent-child sections.
-- Read with auto-increment key names.
-- Read with multiple-line values.
 - Read with tons of helper methods.
 - Read and convert values to Go types.
 - Read and **WRITE** comments of sections and keys.
 - Manipulate sections, keys and comments with ease.
 - Keep sections and keys in order as you parse and save.
+
+### Differences in this fork
+
+- Removed support for variable substitution
+- Removed support for auto-incremented keys
+- Removed support for multi-line values
+- Removed support for quoted keys
+- Much better support for comments, including comments at the end of lines and files.
+- Doesn't support using `:` instead of `=` to separate keys (well it does, but when you write the
+  file they are always converted to =.)
+- ***Much lower chance of mangling files when you write them.***
 
 ## Installation
 
