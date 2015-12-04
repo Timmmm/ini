@@ -905,7 +905,7 @@ func parseSection(line string) (name, lineComment string) {
 		return
 	}
 
-	name = strings.TrimSpace(line[:co])
+	name = strings.TrimSpace(line[1:co])
 	return
 }
 
