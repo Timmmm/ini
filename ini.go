@@ -1043,8 +1043,37 @@ func (f *File) Append(source interface{}, others ...interface{}) error {
 	return f.Reload()
 }
 
-// WriteToIndent writes file content into io.Writer with given value indention.
-func (f *File) WriteToIndent(w io.Writer, indent string) (n int64, err error) {
+// Prepare comment checks that each line in a command starts with # or ;
+// and adds ; if it doesn't. This version is for comments before a section
+// or key. It ensures every line ends with a LineBreak, unless comment was empty.
+func prepareComment(comment string) string {
+	lines := strings.Split(comment, "\n")
+	if len(lines) == 0 {
+		return ""
+	}
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, ";") && !strings.HasPrefix(line, "#") {
+			line = "; " + line
+		}
+		lines[i] = line
+	}
+	return strings.Join(lines, LineBreak) + LineBreak
+}
+
+// This is like prepareComment but for comments on the end of a line. It ensures
+// they are preceeded by a space and ; if necessary, and that they *don't* end in a LineBreak.
+func prepareLineComment(comment string) string {
+	comment = strings.TrimSpace(comment)
+	if len(comment) == 0 {
+		return ""
+	}
+	if !strings.HasPrefix(comment, ";") && !strings.HasPrefix(comment, "#") {
+		comment = "; " + comment
+	}
+	return " " + comment
+}
+func (f *File) WriteTo(w io.Writer) (n int64, err error) {
 
 	// Use buffer to make sure target is safe until finish encoding.
 	buf := bytes.NewBuffer(nil)
@@ -1054,16 +1083,14 @@ func (f *File) WriteToIndent(w io.Writer, indent string) (n int64, err error) {
 		sec := f.Section(sname)
 
 		// Write comment for this section before its header.
-		if len(sec.Comment) > 0 {
-			if _, err = buf.WriteString(sec.Comment + LineBreak); err != nil {
-				return 0, err
-			}
+		if _, err = buf.WriteString(prepareComment(sec.Comment)); err != nil {
+			return 0, err
 		}
 
-		// The first section is the default one.
+		// The first section is the default one so we don't write a section header
+		// for it.
 		if i != 0 {
-			// TODO: Omit space if linecomment is blank.
-			if _, err = buf.WriteString("[" + sname + "] " + sec.LineComment + LineBreak); err != nil {
+			if _, err = buf.WriteString("[" + sname + "]" + prepareLineComment(sec.LineComment) + LineBreak); err != nil {
 				return 0, err
 			}
 		}
@@ -1071,23 +1098,14 @@ func (f *File) WriteToIndent(w io.Writer, indent string) (n int64, err error) {
 		// Go through the keys in this section.
 		for _, kname := range sec.keyList {
 			key := sec.Key(kname)
-			if len(key.Comment) > 0 {
-				if len(indent) > 0 && sname != DEFAULT_SECTION {
-					buf.WriteString(indent)
-				}
-				if _, err = buf.WriteString(key.Comment + LineBreak); err != nil {
-					return 0, err
-				}
-			}
-
-			if len(indent) > 0 && sname != DEFAULT_SECTION {
-				buf.WriteString(indent)
+			if _, err = buf.WriteString(prepareComment(key.Comment)); err != nil {
+				return 0, err
 			}
 
 			// TODO Quote keys properly (but only if they have been modified)
 
 			// TODO: Omit space if linecomment is blank.
-			if _, err = buf.WriteString(kname + " = " + key.value + " " + key.LineComment + LineBreak); err != nil {
+			if _, err = buf.WriteString(kname + " = " + key.value + prepareLineComment(key.LineComment) + LineBreak); err != nil {
 				return 0, err
 			}
 		}
@@ -1101,13 +1119,8 @@ func (f *File) WriteToIndent(w io.Writer, indent string) (n int64, err error) {
 	return buf.WriteTo(w)
 }
 
-// WriteTo writes file content into io.Writer.
-func (f *File) WriteTo(w io.Writer) (int64, error) {
-	return f.WriteToIndent(w, "")
-}
-
-// SaveToIndent writes content to file system with given value indention.
-func (f *File) SaveToIndent(filename, indent string) error {
+// SaveToIndent writes content to file system.
+func (f *File) SaveTo(filename string) error {
 	// Note: Because we are truncating with os.Create,
 	// 	so it's safer to save to a temporary file location and rename afte done.
 	tmpPath := filename + "." + strconv.Itoa(time.Now().Nanosecond()) + ".tmp"
@@ -1118,7 +1131,7 @@ func (f *File) SaveToIndent(filename, indent string) error {
 		return err
 	}
 
-	if _, err = f.WriteToIndent(fw, indent); err != nil {
+	if _, err = f.WriteTo(fw); err != nil {
 		fw.Close()
 		return err
 	}
@@ -1127,9 +1140,4 @@ func (f *File) SaveToIndent(filename, indent string) error {
 	// Remove old file and rename the new one.
 	os.Remove(filename)
 	return os.Rename(tmpPath, filename)
-}
-
-// SaveTo writes content to file system.
-func (f *File) SaveTo(filename string) error {
-	return f.SaveToIndent(filename, "")
 }
