@@ -34,29 +34,18 @@ const _CONF_DATA = `
 NAME = ini
 ; Package version
 VERSION = v1
-; Package import path
-IMPORT_PATH = gopkg.in/%(NAME)s.%(VERSION)s
 
 # Information about package author
 # Bio can be written in multiple lines.
 [author]
 NAME = Unknwon  ; Succeeding comment
 E-MAIL = fake@localhost
-GITHUB = https://github.com/%(NAME)s
-BIO = """Gopher.
-Coding addict.
-Good man.
-"""  # Succeeding comment
 
 [package]
-CLONE_URL = https://%(IMPORT_PATH)s
+CLONE_URL = https://
 
 [package.sub]
 UNUSED_KEY = should be deleted
-
-[features]
--: Support read/write comments of keys and sections
--: Support load multiple files to overwrite key values
 
 [types]
 STRING = str
@@ -78,7 +67,7 @@ TIMES = 2015-01-01T20:17:05Z,2015-01-01T20:17:05Z,2015-01-01T20:17:05Z
 QUOTED_STRINGS = "en", "zh", "de" ; Comment
 
 [note]
-empty_lines = next line is empty\
+empty_lines = next line is empty
 
 ; Comment before the section
 [comments] ; This is a comment for the section too
@@ -89,21 +78,7 @@ key2 = "value2" ; This is a comment for key2
 [advance]
 value with quotes = "some value"
 value quote2 again = 'some value'
-true = """"2+3=5""""
-"1+1=2" = true
-"""6+1=7""" = true
-"""` + "`" + `5+5` + "`" + `""" = 10
-""""6+6"""" = 12
-` + "`" + `7-2=4` + "`" + ` = false
-ADDRESS = ` + "`" + `404 road,
-NotFound, State, 50000` + "`" + `
 
-two_lines = how about \
-	continuation lines?
-lots_of_lines = 1 \
-	2 \
-	3 \
-	4 \
 `
 
 func Test_Load(t *testing.T) {
@@ -143,13 +118,7 @@ func Test_Load(t *testing.T) {
 		})
 
 		Convey("Load with bad keys", func() {
-			_, err := Load([]byte(`"""name`))
-			So(err, ShouldNotBeNil)
-
-			_, err = Load([]byte(`"""name"""`))
-			So(err, ShouldNotBeNil)
-
-			_, err = Load([]byte(`""=1`))
+			_, err := Load([]byte(`""=1`))
 			So(err, ShouldNotBeNil)
 
 			_, err = Load([]byte(`=`))
@@ -160,10 +129,7 @@ func Test_Load(t *testing.T) {
 		})
 
 		Convey("Load with bad values", func() {
-			_, err := Load([]byte(`name="""Unknwon`))
-			So(err, ShouldNotBeNil)
-
-			_, err = Load([]byte(`key = "value`))
+			_, err := Load([]byte(`key = "value`))
 			So(err, ShouldNotBeNil)
 		})
 	})
@@ -341,45 +307,6 @@ func Test_Values(t *testing.T) {
 				So(sec.Key("INT").RangeInt64(7, 0, 5), ShouldEqual, 7)
 				So(sec.Key("TIME").RangeTime(t, minT, midT).String(), ShouldEqual, t.String())
 			})
-		})
-
-		Convey("Get values into slice", func() {
-			sec := cfg.Section("array")
-			So(strings.Join(sec.Key("STRINGS").Strings(","), ","), ShouldEqual, "en,zh,de")
-			So(strings.Join(sec.Key("QUOTED_STRINGS").Strings(","), ","), ShouldEqual, `"en","zh","de"`)
-			So(len(sec.Key("STRINGS_404").Strings(",")), ShouldEqual, 0)
-
-			vals1 := sec.Key("FLOAT64S").Float64s(",")
-			for i, v := range []float64{1.1, 2.2, 3.3} {
-				So(vals1[i], ShouldEqual, v)
-			}
-
-			vals2 := sec.Key("INTS").Ints(",")
-			for i, v := range []int{1, 2, 3} {
-				So(vals2[i], ShouldEqual, v)
-			}
-
-			vals3 := sec.Key("INTS").Int64s(",")
-			for i, v := range []int64{1, 2, 3} {
-				So(vals3[i], ShouldEqual, v)
-			}
-
-			vals4 := sec.Key("UINTS").Uints(",")
-			for i, v := range []uint{1, 2, 3} {
-				So(vals4[i], ShouldEqual, v)
-			}
-
-			vals5 := sec.Key("UINTS").Uint64s(",")
-			for i, v := range []uint64{1, 2, 3} {
-				So(vals5[i], ShouldEqual, v)
-			}
-
-			t, err := time.Parse(time.RFC3339, "2015-01-01T20:17:05Z")
-			So(err, ShouldBeNil)
-			vals6 := sec.Key("TIMES").Times(",")
-			for i, v := range []time.Time{t, t, t} {
-				So(vals6[i].String(), ShouldEqual, v.String())
-			}
 		})
 
 		Convey("Get key hash", func() {
